@@ -5,7 +5,12 @@ import pickle
 import os
 
 from catboost import CatBoostRegressor, CatBoostClassifier
-from tensorflow import keras
+try:
+    from tensorflow import keras
+    KERAS_AVAILABLE = True
+except ImportError:
+    KERAS_AVAILABLE = False
+    keras = None
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -26,8 +31,9 @@ if is_regression:
         "ML3 — CatBoost": "models_regression/catboost.cbm",
         "ML4 — Bagging (sklearn)": "models_regression/bagging.pkl",
         "ML5 — Stacking (sklearn)": "models_regression/stacking.pkl",
-        "ML6 — Neural Network (TensorFlow)": "models_regression/neural_network.keras"
     }
+    if KERAS_AVAILABLE:
+        MODELS["ML6 — Neural Network (TensorFlow)"] = "models_regression/neural_network.keras"
 else:
     MODELS = {
         "ML1 — Logistic Regression (sklearn)": "models_classification/logreg.pkl",
@@ -35,8 +41,9 @@ else:
         "ML3 — CatBoost": "models_classification/catboost.cbm",
         "ML4 — Bagging (sklearn)": "models_classification/bagging.pkl",
         "ML5 — Stacking (sklearn)": "models_classification/stacking.pkl",
-        "ML6 — Neural Network (TensorFlow)": "models_classification/neural_network.keras"
     }
+    if KERAS_AVAILABLE:
+        MODELS["ML6 — Neural Network (TensorFlow)"] = "models_classification/neural_network.keras"
 
 model_name = st.selectbox("Выберите модель:", list(MODELS.keys()))
 
@@ -44,6 +51,9 @@ model_name = st.selectbox("Выберите модель:", list(MODELS.keys()))
 @st.cache_resource
 def load_model(path, model_name):
     if path.endswith('.keras'):
+        if not KERAS_AVAILABLE:
+            st.error("TensorFlow/Keras недоступен в данном окружении. Выберите другую модель.")
+            st.stop()
         return keras.models.load_model(path)
     elif path.endswith('.cbm'):
         if is_regression:
