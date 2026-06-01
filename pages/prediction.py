@@ -61,7 +61,8 @@ def load_model(path, model_name):
     try:
         if path.endswith('.keras'):
             if not KERAS_AVAILABLE:
-                st.error("TensorFlow/Keras недоступен в данном окружении. Выберите другую модель.")
+                st.error("❌ TensorFlow/Keras недоступен в данном окружении.")
+                st.info("💡 Установите TensorFlow: `pip install tensorflow` или выберите другую модель.")
                 st.stop()
             st.info(f"Загрузка нейросети: {model_name}")
             return keras.models.load_model(path)
