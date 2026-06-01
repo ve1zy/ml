@@ -8,9 +8,11 @@ from catboost import CatBoostRegressor, CatBoostClassifier
 try:
     from tensorflow import keras
     KERAS_AVAILABLE = True
-except ImportError:
+    print("TensorFlow/Keras доступен")
+except ImportError as e:
     KERAS_AVAILABLE = False
     keras = None
+    print(f"TensorFlow/Keras не доступен: {e}")
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -32,7 +34,10 @@ if is_regression:
         "ML4 — Bagging (sklearn)": "models_regression/bagging.pkl",
         "ML5 — Stacking (sklearn)": "models_regression/stacking.pkl",
     }
+    # Всегда добавляем нейросеть, но помечаем если TensorFlow недоступен
     if KERAS_AVAILABLE:
+        MODELS["ML6 — Neural Network (TensorFlow)"] = "models_regression/neural_network.keras"
+    else:
         MODELS["ML6 — Neural Network (TensorFlow)"] = "models_regression/neural_network.keras"
 else:
     MODELS = {
@@ -42,7 +47,10 @@ else:
         "ML4 — Bagging (sklearn)": "models_classification/bagging.pkl",
         "ML5 — Stacking (sklearn)": "models_classification/stacking.pkl",
     }
+    # Всегда добавляем нейросеть, но помечаем если TensorFlow недоступен
     if KERAS_AVAILABLE:
+        MODELS["ML6 — Neural Network (TensorFlow)"] = "models_classification/neural_network.keras"
+    else:
         MODELS["ML6 — Neural Network (TensorFlow)"] = "models_classification/neural_network.keras"
 
 model_name = st.selectbox("Выберите модель:", list(MODELS.keys()))
@@ -50,21 +58,26 @@ model_name = st.selectbox("Выберите модель:", list(MODELS.keys()))
 # ==== Загрузка модели ====
 @st.cache_resource
 def load_model(path, model_name):
-    if path.endswith('.keras'):
-        if not KERAS_AVAILABLE:
-            st.error("TensorFlow/Keras недоступен в данном окружении. Выберите другую модель.")
-            st.stop()
-        return keras.models.load_model(path)
-    elif path.endswith('.cbm'):
-        if is_regression:
-            model = CatBoostRegressor()
+    try:
+        if path.endswith('.keras'):
+            if not KERAS_AVAILABLE:
+                st.error("TensorFlow/Keras недоступен в данном окружении. Выберите другую модель.")
+                st.stop()
+            st.info(f"Загрузка нейросети: {model_name}")
+            return keras.models.load_model(path)
+        elif path.endswith('.cbm'):
+            if is_regression:
+                model = CatBoostRegressor()
+            else:
+                model = CatBoostClassifier()
+            model.load_model(path)
+            return model
         else:
-            model = CatBoostClassifier()
-        model.load_model(path)
-        return model
-    else:
-        with open(path, 'rb') as f:
-            return pickle.load(f)
+            with open(path, 'rb') as f:
+                return pickle.load(f)
+    except Exception as e:
+        st.error(f"Ошибка загрузки модели {model_name}: {str(e)}")
+        st.stop()
 
 model_path = MODELS[model_name]
 if os.path.exists(model_path):
@@ -143,27 +156,31 @@ if is_regression:
 
     # ===== ПРЕДСКАЗАНИЕ РЕГРЕССИИ =====
     if st.button("💰 Предсказать цену", type="primary"):
-        if model_name.endswith("CatBoost"):
-            pred = model.predict(input_df)
-        elif model_name.endswith("TensorFlow)"):
-            prep = load_preprocessor("models_regression/preprocessor.pkl")
-            X_proc = prep.transform(input_df)
-            pred = model.predict(X_proc).flatten()
-        else:
-            pred = model.predict(input_df)
-        
-        for i, p in enumerate(pred):
-            st.balloons()
-            st.metric(
-                label=f"Автомобиль #{i+1}",
-                value=f"${p:,.2f} USD"
-            )
-            if p < 5000:
-                st.warning("⚠️ Низкая цена — возможно, автомобиль с высоким пробегом или старый.")
-            elif p > 60000:
-                st.warning("⚠️ Высокая цена — премиальный сегмент. Проверьте характеристики.")
+        try:
+            if model_name.endswith("CatBoost"):
+                pred = model.predict(input_df)
+            elif model_name.endswith("TensorFlow)"):
+                st.info("Используется нейросеть для предсказания...")
+                prep = load_preprocessor("models_regression/preprocessor.pkl")
+                X_proc = prep.transform(input_df)
+                pred = model.predict(X_proc).flatten()
             else:
-                st.success("✅ Корректный диапазон цены для данной конфигурации.")
+                pred = model.predict(input_df)
+            
+            for i, p in enumerate(pred):
+                st.balloons()
+                st.metric(
+                    label=f"Автомобиль #{i+1}",
+                    value=f"${p:,.2f} USD"
+                )
+                if p < 5000:
+                    st.warning("⚠️ Низкая цена — возможно, автомобиль с высоким пробегом или старый.")
+                elif p > 60000:
+                    st.warning("⚠️ Высокая цена — премиальный сегмент. Проверьте характеристики.")
+                else:
+                    st.success("✅ Корректный диапазон цены для данной конфигурации.")
+        except Exception as e:
+            st.error(f"Ошибка при предсказании: {str(e)}")
 
 else:
     # ===== КЛАССИФИКАЦИЯ: ВВОД =====
@@ -234,27 +251,31 @@ else:
 
     # ===== ПРЕДСКАЗАНИЕ КЛАССИФИКАЦИИ =====
     if st.button("🩺 Диагностировать", type="primary"):
-        if model_name.endswith("CatBoost"):
-            pred = model.predict(input_df)
-        elif model_name.endswith("TensorFlow)"):
-            scaler = load_scaler("models_classification/scaler.pkl")
-            X_s = scaler.transform(input_df)
-            probs = model.predict(X_s)
-            pred = np.argmax(probs, axis=1)
-        else:
-            scaler = load_scaler("models_classification/scaler.pkl")
-            X_s = scaler.transform(input_df)
-            pred = model.predict(X_s)
-        
-        labels = {0: "🟢 Нет диабета", 1: "🟡 Преддиабет", 2: "🔴 Диабет"}
-        for i, p in enumerate(pred):
-            label = labels.get(int(p), "Неизвестно")
-            if int(p) == 0:
-                st.success(f"Результат пациента #{i+1}: **{label}**")
-                st.info("Рекомендация: продолжайте здоровый образ жизни, регулярно проходите обследования.")
-            elif int(p) == 1:
-                st.warning(f"Результат пациента #{i+1}: **{label}**")
-                st.info("Рекомендация: измените режим питания, увеличьте физическую активность, консультация у эндокринолога.")
+        try:
+            if model_name.endswith("CatBoost"):
+                pred = model.predict(input_df)
+            elif model_name.endswith("TensorFlow)"):
+                st.info("Используется нейросеть для диагностики...")
+                scaler = load_scaler("models_classification/scaler.pkl")
+                X_s = scaler.transform(input_df)
+                probs = model.predict(X_s)
+                pred = np.argmax(probs, axis=1)
             else:
-                st.error(f"Результат пациента #{i+1}: **{label}**")
-                st.info("Рекомендация: срочная консультация у эндокринолога, начало мониторинга глюкозы, возможно назначение терапии.")
+                scaler = load_scaler("models_classification/scaler.pkl")
+                X_s = scaler.transform(input_df)
+                pred = model.predict(X_s)
+            
+            labels = {0: "🟢 Нет диабета", 1: "🟡 Преддиабет", 2: "🔴 Диабет"}
+            for i, p in enumerate(pred):
+                label = labels.get(int(p), "Неизвестно")
+                if int(p) == 0:
+                    st.success(f"Результат пациента #{i+1}: **{label}**")
+                    st.info("Рекомендация: продолжайте здоровый образ жизни, регулярно проходите обследования.")
+                elif int(p) == 1:
+                    st.warning(f"Результат пациента #{i+1}: **{label}**")
+                    st.info("Рекомендация: измените режим питания, увеличьте физическую активность, консультация у эндокринолога.")
+                else:
+                    st.error(f"Результат пациента #{i+1}: **{label}**")
+                    st.info("Рекомендация: срочная консультация у эндокринолога, начало мониторинга глюкозы, возможно назначение терапии.")
+        except Exception as e:
+            st.error(f"Ошибка при диагностике: {str(e)}")
