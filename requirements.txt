@@ -6,6 +6,7 @@ matplotlib
 seaborn
 xgboost
 catboost
+tensorflow>=2.15.0
 pillow
 joblib
 openpyxl
